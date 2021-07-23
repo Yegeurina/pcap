@@ -2,13 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap.h>
-#include <netinet/in.h>
-#include "libnet-macros.h"
-#include "libnet-headers.h"
-#include "libnet-structures.h"
-#include "libnet-asn1.h"
-#include "libnet-functions.h"
-
+#include "libnet.h"
 
 void usage() {
     printf("syntax: pcap-test <interface>\n");
@@ -51,67 +45,107 @@ uint16_t printEther(const u_char* packet)
         printf("%02x",eth->ether_dhost[i]);
         if(i!=5) printf(":");
     }printf("\n");
-
-    return eth->ether_type;
+    return ntohs(eth->ether_type);
 }
+
+void PrintIPv4adr(uint32_t IPadr)
+{
+    int i;
+    uint8_t adr[4];
+    adr[3]=(IPadr>>24)&0xFF;
+    adr[2]=(IPadr>>16)&0xFF;
+    adr[1]=(IPadr>>8)&0xFF;
+    adr[0]=IPadr&0xFF;
+    for(i=0;i<4;i++)
+    {
+        printf("%d",adr[i]);
+        if(i!=3) printf(".");
+    }
+    printf("\n");
+}
+
 uint8_t printIPv4(const u_char* packet)
 {
     struct libnet_ipv4_hdr* ip = (struct libnet_ipv4_hdr*)packet;
-    printf("[IP]\n");
-    printf("SRC IPv4 : %d\n",ip->ip_src.s_addr);
-    printf("DST IPv4 : %d\n",ip->ip_dst.s_addr);
+    printf("[IPv4]\n");
+    printf("SRC IPv4 : ");
+    PrintIPv4adr(ip->ip_src.s_addr);
+    printf("DST IPv4 : ");
+    PrintIPv4adr(ip->ip_dst.s_addr);
     return ip->ip_p;
 }
+
+void printIPv6adr (uint16_t IPadr[])
+{
+    int i;
+    for(i=0;i<8;i++)
+    {
+        printf("%04x",IPadr[i]);
+        if(i!=7) printf(":");
+    }
+    printf("\n");
+}
+
 uint8_t printIPv6(const u_char* packet)
 {
     struct libnet_ipv6_hdr* ip = (struct libnet_ipv6_hdr*)packet;
     int i;
 
-    printf("[IP]\n");
-     printf("SRC IPv6 : ");
-    for(i=0;i<8;i++){
-        printf("%d",ip->ip_src.__u6_addr.__u6_addr16[i]);
-        if(i!=8) printf(":");
-    }printf("\n");
+    printf("[IPv6]\n");
+    printf("SRC IPv6 : ");
 
-    printf("DST IPv6 : ");
-    for(i=0;i<8;i++){
-        printf("%d",ip->ip_dst.__u6_addr.__u6_addr16[i]);
-        if(i!=8) printf(":");
-    }printf("\n");
+    printIPv6(ip->ip_src);
 
-    return ip->ip_nh;
+//    printf("DST IPv6 : ");
+//    for(i=0;i<8;i++){
+//        printf("%d",ip->ip_dst.__u6_addr.__u6_addr16[i]);
+//        if(i!=8) printf(":");
+//    }printf("\n");
+
+    return ntohs(ip->ip_nh);
 }
+
 void printTCP(const u_char* packet)
 {
     struct libnet_tcp_hdr* tcp = (struct libnet_tcp_hdr*)packet;
     printf("[TCP]\n");
-    printf("SRC PORT : %d\n",tcp->th_sport);
-    printf("DST PORT : %d\n",tcp->th_dport);
+    printf("SRC PORT : %d\n",ntohs(tcp->th_sport));
+    printf("DST PORT : %d\n",ntohs(tcp->th_dport));
 }
-/*void printDATA(const u_char* packet)
+
+void printUDP(const u_char* packet)
 {
-    struct libnet_tcp_hdr* ip = (struct libnet_tcp_hdr*)packet;
-    printf("[TCP]\n");
-    printf("SRC PORT : ");
-    printf("DST PORT : ");
-}*/
+    struct libnet_udp_hdr* udp = (struct libnet_udp_hdr*)packet;
+    printf("[UDP]\n");
+    printf("SRC PORT : %d\n",ntohs(udp->uh_sport));
+    printf("DST PORT : %d\n",ntohs(udp->uh_dport));
+}
+
+void printDATA(const u_char* packet)
+{
+    int i;
+    printf("[DATA]\n");
+    for(i=0;i<8;i++)
+        printf("%02x ",packet[i]);
+    printf("\n");
+}
 
 
 
 void packetAnalysis(const u_char* packet)
 {
     uint16_t ipType = printEther(packet);
-    packet+=LIBNET_ETH_H; // static header size = 14bytes
-    uint8_t tcpudp;
+    packet+=LIBNET_ETH_H; // stLIBNET_UDP_Hatic header size = 14bytes
+    uint8_t checkTCPUDP;
+
     if(ipType==ETHERTYPE_IP) //ipv4
     {
-       tcpudp=printIPv4(packet);
+       checkTCPUDP=printIPv4(packet);
        packet+=LIBNET_IPV4_H; //static header size = 20bytes
     }
     else if(ipType == 0x86DD) //ipv6
     {
-        tcpudp=printIPv6(packet);
+        checkTCPUDP=printIPv6(packet);
         packet+=LIBNET_IPV6_H;
     }
     else
@@ -120,13 +154,24 @@ void packetAnalysis(const u_char* packet)
         exit(1);
     }
 
-    printTCP(packet);
-    packet+=LIBNET_TCP_H;
 
-//    printUDP(packet);
-//    packet+=LIBNET_UDP_H;
+    if(checkTCPUDP==0x06)
+    {
+        printTCP(packet);
+        packet+=LIBNET_TCP_H;
+    }
+    else if(checkTCPUDP==0x11)
+    {
+        printUDP(packet);
+        packet+=LIBNET_UDP_H;
+    }
+    else
+    {
+        printf("This packet cannot be analyzed.\n ");
+        exit(1);
+    }
 
-//    printDATA(packet);
+   printDATA(packet);
 }
 
 
@@ -156,9 +201,13 @@ void packet_lookup()
             break;
         }
 
+        printf("===================\n");
+
         printf("%u bytes captured\n", header->caplen);
 
         packetAnalysis(packet);
+
+        printf("===================\n\n");
 
     }
 
