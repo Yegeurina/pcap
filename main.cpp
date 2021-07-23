@@ -75,7 +75,7 @@ uint8_t printIPv4(const u_char* packet)
     return ip->ip_p;
 }
 
-void printIPv6adr (uint16_t IPadr[])
+void printIPv6adr (uint8_t *IPadr)
 {
     int i;
     for(i=0;i<8;i++)
@@ -86,24 +86,6 @@ void printIPv6adr (uint16_t IPadr[])
     printf("\n");
 }
 
-uint8_t printIPv6(const u_char* packet)
-{
-    struct libnet_ipv6_hdr* ip = (struct libnet_ipv6_hdr*)packet;
-    int i;
-
-    printf("[IPv6]\n");
-    printf("SRC IPv6 : ");
-
-    printIPv6(ip->ip_src);
-
-//    printf("DST IPv6 : ");
-//    for(i=0;i<8;i++){
-//        printf("%d",ip->ip_dst.__u6_addr.__u6_addr16[i]);
-//        if(i!=8) printf(":");
-//    }printf("\n");
-
-    return ntohs(ip->ip_nh);
-}
 
 void printTCP(const u_char* packet)
 {
@@ -132,6 +114,7 @@ void printDATA(const u_char* packet)
 
 
 
+
 void packetAnalysis(const u_char* packet)
 {
     uint16_t ipType = printEther(packet);
@@ -142,11 +125,6 @@ void packetAnalysis(const u_char* packet)
     {
        checkTCPUDP=printIPv4(packet);
        packet+=LIBNET_IPV4_H; //static header size = 20bytes
-    }
-    else if(ipType == 0x86DD) //ipv6
-    {
-        checkTCPUDP=printIPv6(packet);
-        packet+=LIBNET_IPV6_H;
     }
     else
     {
