@@ -75,17 +75,6 @@ uint8_t printIPv4(const u_char* packet)
     return ip->ip_p;
 }
 
-void printIPv6adr (uint8_t *IPadr)
-{
-    int i;
-    for(i=0;i<8;i++)
-    {
-        printf("%04x",IPadr[i]);
-        if(i!=7) printf(":");
-    }
-    printf("\n");
-}
-
 
 void printTCP(const u_char* packet)
 {
