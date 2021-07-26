@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <pcap.h>
 #include "libnet.h"
 
@@ -138,7 +139,10 @@ void packetAnalysis(const u_char* packet)
         exit(1);
     }
 
-   printDATA(packet);
+    if(packet==NULL)
+        printf("NO DATA");
+    else
+        printDATA(packet);
 }
 
 
